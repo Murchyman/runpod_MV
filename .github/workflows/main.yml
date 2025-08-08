@@ -1,5 +1,4 @@
-# .github/workflows/publish.yml
-name: Build & Publish ComfyUI-MVAdapter
+name: Build & Publish ComfyUI-MVAdapter (disk-safe)
 
 on:
   push:
@@ -8,44 +7,54 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: write          # lets GITHUB_TOKEN push to GHCR
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: murchyman/mvrunpod     # ghcr.io/OWNER/REPO
-  RP_VERSION: 5.3.0                         # worker-comfyui tag (update when needed)
+  IMAGE_NAME: murchhyman/mvrunpod       # ghcr.io/OWNER/REPO
+  RP_VERSION: 5.3.0                           # worker-comfyui version tag
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
     steps:
+      # 1 – checkout (tiny)
       - uses: actions/checkout@v4
 
-      # Reclaim ~30 GB on the GitHub runner before building
-      - name: Free disk space on runner
-        uses: insightsengineering/disk-space-reclaimer@v1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
+      # 2 – remove huge pre-installed SDKs and tool-caches (~25 GB reclaimed)
+      #    Paths come from the disk-usage analysis in Matej Lednický’s guide:contentReference[oaicite:0]{index=0}
+      - name: Aggressive cleanup
+        run: |
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android \
+                      /usr/share/swift \
+                      /usr/lib/jvm \
+                      /opt/hostedtoolcache \
+                      /usr/local/.ghcup \
+                      /opt/az \
+                      /usr/local/share/powershell
+          sudo apt-get -qq purge '^llvm-.*' 'monodoc*' || true
+          sudo docker system prune -af || true
+          df -h
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # 3 – Set up Buildx
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      # 4 – Log in to GHCR with the workflow token
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      # 5 – Build *and* push, streaming layers directly to the registry
+      #    -- no big local tarballs left behind
+      - uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          outputs: type=registry           # stream to GHCR, minimal local disk
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RP_VERSION }}-sdxl
           build-args: |
             RP_VERSION=${{ env.RP_VERSION }}
