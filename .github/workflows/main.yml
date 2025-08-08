@@ -12,7 +12,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # owner/repo → ghcr.io/owner/repo
+  IMAGE_NAME: runpod   # owner/repo → ghcr.io/owner/repo
   RP_VERSION: 5.3.0                      # worker-comfyui tag (update when needed)
 
 jobs:
