@@ -1,41 +1,40 @@
-FROM runpod/worker-comfyui:5.3.0-sdxl
+# Latest ComfyUI from source, GPU-ready
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# Install system packages needed for git and wget (if not already present).
-RUN apt-get update && apt-get install -y git wget
+# --- system deps ---
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip git curl jq ca-certificates build-essential \
+ && rm -rf /var/lib/apt/lists/*
 
-# Set working directory to the root of ComfyUI installation.
-WORKDIR /comfyui
+# --- where we'll install ---
+ENV COMFY_ROOT=/opt/ComfyUI
+WORKDIR $COMFY_ROOT
 
-# Clone the MVAdapter extension into the ComfyUI custom_nodes directory.
-# The README recommends placing the repository under ComfyUI/custom_nodes and
-# running pip install on its requirements【960072206842080†L18-L26】.
-RUN git clone --depth 1 https://github.com/huanngzh/ComfyUI-MVAdapter.git \
-    /comfyui/custom_nodes/ComfyUI-MVAdapter
+# Build arg:
+#   COMFYUI_REF=auto  -> detect latest release via GitHub API at build time
+#   COMFYUI_REF=<tag> -> pin to a specific tag, e.g., v0.3.48
+ARG COMFYUI_REF=auto
 
-# Install the MVAdapter python dependencies.
-# ComfyUI uses its own virtual environment; installing into this environment keeps packages isolated.
-RUN pip install -r /comfyui/custom_nodes/ComfyUI-MVAdapter/requirements.txt
+# --- fetch ComfyUI (latest release by default) ---
+RUN set -eux; \
+    if [ "$COMFYUI_REF" = "auto" ]; then \
+      COMFYUI_REF="$(curl -s https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest | jq -r .tag_name)"; \
+    fi; \
+    echo "Using ComfyUI ref: $COMFYUI_REF"; \
+    git clone --depth 1 --branch "$COMFYUI_REF" https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
 
-# Create a directory for adapter weights and pre‑download the MVAdapter SDXL I2MV beta weight.
-# The documentation explains that the Diffusers Model Makeup node should use the
-# file mvadapter_i2mv_sdxl_beta.safetensors【960072206842080†L105-L112】.
-RUN mkdir -p /comfyui/models/adapters && \
-    wget -q -O /comfyui/models/adapters/mvadapter_i2mv_sdxl_beta.safetensors \
-    https://huggingface.co/huanngzh/mv-adapter/resolve/main/mvadapter_i2mv_sdxl_beta.safetensors
+# --- Python venv + PyTorch (CUDA 12.1) + ComfyUI deps ---
+RUN python3 -m venv $COMFY_ROOT/venv && \
+    . $COMFY_ROOT/venv/bin/activate && \
+    pip install --upgrade pip wheel && \
+    pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio && \
+    pip install -r $COMFY_ROOT/requirements.txt
 
-# Optionally download additional VAE models recommended for limited GPU memory.
-# If you have a smaller GPU, the MVAdapter guide suggests using the FP16 SDXL VAE fix【960072206842080†L44-L58】.
-# The base worker image already includes the SDXL checkpoint and VAEs, but the fix can be added here.
-RUN wget -q -O /comfyui/models/vae/sdxl-vae-fp16-fix.safetensors \
-    https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors
+# Optional: a place to mount persistent models into the container
+RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models
 
-# Copy the example workflow that uses the View Selector.
-# This workflow demonstrates how to set up an image‑to‑multi‑view pipeline and select front/back/left/right views.
-# Users can load this workflow directly in the ComfyUI interface.
-RUN mkdir -p /comfyui/workflows && \
-    wget -q -O /comfyui/workflows/i2mv_sdxl_ldm_view_selector.json \
-    https://raw.githubusercontent.com/huanngzh/ComfyUI-MVAdapter/main/workflows/i2mv_sdxl_ldm_view_selector.json
+EXPOSE 8188
+ENV PYTHONUNBUFFERED=1
 
-# Set the default command to start the ComfyUI worker.
-# The parent image includes a start script that runs ComfyUI with the appropriate environment.
-CMD ["/start.sh"]
+# Run ComfyUI on all interfaces (port 8188)
+CMD ["/opt/ComfyUI/venv/bin/python", "main.py", "--listen", "0.0.0.0", "--port", "8188"]
