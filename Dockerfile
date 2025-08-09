@@ -11,7 +11,7 @@ ENV COMFY_ROOT=/opt/ComfyUI
 ENV PYTHONUNBUFFERED=1
 WORKDIR $COMFY_ROOT
 
-# --- clone latest ComfyUI (nightly / master) ---
+# --- clone ComfyUI (nightly / master) ---
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
 
 # --- Python venv + CUDA 12.1 PyTorch + ComfyUI deps ---
@@ -28,10 +28,8 @@ RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models
 ENV QWEN_AUTO_DOWNLOAD=1 \
     QWEN_VARIANT=fp8
 
-# --- robust heredoc: write entrypoint without nested bash -lc ---
-RUN set -eux; \
-  mkdir -p /usr/local/bin; \
-  cat > /usr/local/bin/entrypoint.sh <<'EOF'
+# --- write entrypoint (note: EOF must be at column 1, no spaces) ---
+RUN mkdir -p /usr/local/bin && cat >/usr/local/bin/entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -90,7 +88,9 @@ fi
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 exec "$COMFY_ROOT/venv/bin/python" "$COMFY_ROOT/main.py" --listen 0.0.0.0 --port 8188
 EOF
-  chmod +x /usr/local/bin/entrypoint.sh
+
+# make it executable (separate RUN so the parser can't confuse it)
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8188
 CMD ["/usr/local/bin/entrypoint.sh"]
