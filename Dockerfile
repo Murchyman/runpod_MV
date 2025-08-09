@@ -25,9 +25,8 @@ RUN python3 -m venv $COMFY_ROOT/venv && \
 # Optional: external model mount point
 RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models
 
-# --- Qwen-Image knobs (change at run-time if you like) ---
+# --- knobs ---
 ENV QWEN_AUTO_DOWNLOAD=1 \
-    QWEN_VARIANT=fp8 \
     HF_TOKEN=""
 
 # --- write entrypoint ---
@@ -37,48 +36,33 @@ set -euo pipefail
 
 COMFY_ROOT="${COMFY_ROOT:-/opt/ComfyUI}"
 MODELS_DIR="$COMFY_ROOT/models"
-mkdir -p "$MODELS_DIR/diffusion_models" "$MODELS_DIR/text_encoders" "$MODELS_DIR/vae" "$MODELS_DIR/loras"
+mkdir -p \
+  "$MODELS_DIR/diffusion_models" \
+  "$MODELS_DIR/text_encoders" \
+  "$MODELS_DIR/vae" \
+  "$MODELS_DIR/loras"
 
-variant="${QWEN_VARIANT:-fp8}"
-case "$variant" in
-  fp8)
-    DM_PATH="split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors"
-    TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
-    ;;
-  bf16)
-    DM_PATH="split_files/diffusion_models/qwen_image_bf16.safetensors"
-    TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b.safetensors"
-    ;;
-  distill_fp8)
-    DM_PATH="split_files/diffusion_models/qwen_image_distill_full_fp8.safetensors"
-    TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
-    ;;
-  distill_bf16)
-    DM_PATH="split_files/diffusion_models/qwen_image_distill_full_bf16.safetensors"
-    TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b.safetensors"
-    ;;
-  *) echo "Unknown QWEN_VARIANT: $variant" >&2; exit 1 ;;
-esac
+# bf16-only artifacts
+DM_PATH="split_files/diffusion_models/qwen_image_bf16.safetensors"
+TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b.safetensors"
 VAE_PATH="split_files/vae/qwen_image_vae.safetensors"
 
 if [ "${QWEN_AUTO_DOWNLOAD:-1}" = "1" ]; then
   export HF_TOKEN=${HF_TOKEN:-}
-  "$COMFY_ROOT/venv/bin/python" - <<'PY'
+  "$COMFY_ROOT/venv/bin/python" - <<PY
 import os
 from huggingface_hub import hf_hub_download
 
-MODELS_DIR = os.environ.get("COMFY_ROOT", "/opt/ComfyUI") + "/models"
+MODELS_DIR = os.path.join(os.environ.get("COMFY_ROOT", "/opt/ComfyUI"), "models")
+token = os.environ.get("HF_TOKEN") or None
 
-# Targets: (repo_id, filename, outdir)
 targets = [
-    ("Comfy-Org/Qwen-Image_ComfyUI", os.environ["DM_PATH"], os.path.join(MODELS_DIR, "diffusion_models")),
-    ("Comfy-Org/Qwen-Image_ComfyUI", os.environ["TE_PATH"], os.path.join(MODELS_DIR, "text_encoders")),
-    ("Comfy-Org/Qwen-Image_ComfyUI", os.environ["VAE_PATH"], os.path.join(MODELS_DIR, "vae")),
-    # Helen LoRA -> models/loras
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/diffusion_models/qwen_image_bf16.safetensors", os.path.join(MODELS_DIR, "diffusion_models")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors", os.path.join(MODELS_DIR, "text_encoders")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors", os.path.join(MODELS_DIR, "vae")),
+    # Helen LoRA
     ("momo1231231/HelenLora", "helendog.safetensors", os.path.join(MODELS_DIR, "loras")),
 ]
-
-token = os.environ.get("HF_TOKEN") or None
 
 for repo_id, filename, outdir in targets:
     os.makedirs(outdir, exist_ok=True)
