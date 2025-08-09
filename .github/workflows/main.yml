@@ -1,4 +1,4 @@
-name: Build & Publish ComfyUI-MVAdapter (disk-safe)
+name: Build & Publish
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: murchyman/qwencomfy # ghcr.io/OWNER/REPO
-  RP_VERSION: 5.3.0 # worker-comfyui version tag
+  RP_VERSION: 5.3.1 # worker-comfyui version tag
 
 jobs:
   build-and-push:
@@ -55,6 +55,6 @@ jobs:
           context: .
           push: true
           outputs: type=registry # stream to GHCR, minimal local disk
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RP_VERSION }}-sdxl
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.RP_VERSION }}
           build-args: |
             RP_VERSION=${{ env.RP_VERSION }}
