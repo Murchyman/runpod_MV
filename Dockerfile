@@ -3,30 +3,30 @@ FROM python:3.11-slim AS weights-builder
 
 RUN pip install --no-cache-dir huggingface_hub
 
-# Download directly into a clean artifacts folder
-RUN mkdir -p /artifacts/diffusion_models /artifacts/text_encoders /artifacts/vae && \
+# Download the three weights and FLATTEN them under /artifacts/<subdir>/<file>
+RUN mkdir -p /artifacts && \
     python - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
+import shutil
 
 repo_id = "Comfy-Org/Qwen-Image_ComfyUI"
 targets = [
-    ("split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors", "diffusion_models"),
-    ("split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", "text_encoders"),
-    ("split_files/vae/qwen_image_vae.safetensors", "vae"),
+    ("split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors",
+     "diffusion_models/qwen_image_fp8_e4m3fn.safetensors"),
+    ("split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+     "text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"),
+    ("split_files/vae/qwen_image_vae.safetensors",
+     "vae/qwen_image_vae.safetensors"),
 ]
-for rel, sub in targets:
-    outdir = Path("/artifacts") / sub
-    outdir.mkdir(parents=True, exist_ok=True)
-    # Download into outdir (no symlinks) and leave just the file we need
-    hf_hub_download(
-        repo_id=repo_id,
-        filename=rel,
-        repo_type="model",
-        local_dir=str(outdir),
-        local_dir_use_symlinks=False,
-        resume_download=True,
-    )
+
+root = Path("/artifacts")
+for src_rel, dest_rel in targets:
+    dest = root / dest_rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src_path = hf_hub_download(repo_id=repo_id, filename=src_rel, repo_type="model")
+    shutil.copy2(src_path, dest)
+    print(f"Copied {src_path} -> {dest}")
 PY
 
 # ---------- Stage 2: runtime (CUDA + ComfyUI + Jupyter) ----------
@@ -54,7 +54,7 @@ RUN python3 -m venv $COMFY_ROOT/venv && \
     pip install jupyterlab && \
     rm -rf /root/.cache/pip
 
-# (Optional) external models mount point; still bake files directly below too
+# (Optional) external models mount point; files are also baked in below
 RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models || true
 
 # Ensure models tree exists inside the image
