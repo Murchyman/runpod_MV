@@ -42,9 +42,9 @@ mkdir -p \
   "$MODELS_DIR/vae" \
   "$MODELS_DIR/loras"
 
-# bf16-only artifacts
-DM_PATH="split_files/diffusion_models/qwen_image_bf16.safetensors"
-TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b.safetensors"
+# fp8 artifacts (UNet/text-encoder); VAE unchanged
+DM_PATH="split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors"
+TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
 VAE_PATH="split_files/vae/qwen_image_vae.safetensors"
 
 if [ "${QWEN_AUTO_DOWNLOAD:-1}" = "1" ]; then
@@ -57,11 +57,11 @@ MODELS_DIR = os.path.join(os.environ.get("COMFY_ROOT", "/opt/ComfyUI"), "models"
 token = os.environ.get("HF_TOKEN") or None
 
 targets = [
-    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/diffusion_models/qwen_image_bf16.safetensors", os.path.join(MODELS_DIR, "diffusion_models")),
-    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors", os.path.join(MODELS_DIR, "text_encoders")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors", os.path.join(MODELS_DIR, "diffusion_models")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", os.path.join(MODELS_DIR, "text_encoders")),
     ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors", os.path.join(MODELS_DIR, "vae")),
-    # Helen LoRA
-    ("momo1231231/helen", "helen.safetensors", os.path.join(MODELS_DIR, "loras")),\
+    # Helen / ppet LoRAs (optional)
+    ("momo1231231/helen", "helen.safetensors", os.path.join(MODELS_DIR, "loras")),
     ("momo1231231/ppet", "ppet.safetensors", os.path.join(MODELS_DIR, "loras")),
 ]
 
