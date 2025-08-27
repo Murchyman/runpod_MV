@@ -1,93 +1,81 @@
-# ComfyUI (nightly) + Qwen-Image-Edit
+# ComfyUI (nightly) + Qwen-Image prerequisites
 FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# ---- system deps ----
+# --- system deps ---
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip git git-lfs curl jq wget ca-certificates aria2 build-essential \
+    python3 python3-venv python3-pip git curl jq wget ca-certificates aria2 build-essential \
  && rm -rf /var/lib/apt/lists/*
 
+# --- env/layout ---
 ENV COMFY_ROOT=/opt/ComfyUI
 ENV PYTHONUNBUFFERED=1
 WORKDIR $COMFY_ROOT
 
-# ---- clone ComfyUI (nightly / master) ----
+# --- clone ComfyUI (nightly / master) ---
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
 
-# ---- Python venv + CUDA 12.1 wheels ----
-RUN python3 -m venv "$COMFY_ROOT/venv" && \
-    "$COMFY_ROOT/venv/bin/pip" install --upgrade pip setuptools wheel && \
-    "$COMFY_ROOT/venv/bin/pip" install \
-      torch==2.4.1+cu121 torchvision==0.19.1+cu121 torchaudio==2.4.1+cu121 \
-      --extra-index-url https://download.pytorch.org/whl/cu121 && \
-    "$COMFY_ROOT/venv/bin/pip" install -r "$COMFY_ROOT/requirements.txt" && \
-    "$COMFY_ROOT/venv/bin/pip" install huggingface_hub>=0.25.0 safetensors
+# --- Python venv + CUDA 12.1 PyTorch + ComfyUI deps + HF hub ---
+RUN python3 -m venv $COMFY_ROOT/venv && \
+    . $COMFY_ROOT/venv/bin/activate && \
+    pip install --upgrade pip wheel && \
+    pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio && \
+    pip install -r $COMFY_ROOT/requirements.txt && \
+    pip install huggingface_hub
 
-# ---- model folders ----
-RUN mkdir -p \
-  "$COMFY_ROOT/models/diffusion_models" \
-  "$COMFY_ROOT/models/text_encoders" \
-  "$COMFY_ROOT/models/vae" \
-  "$COMFY_ROOT/models/loras"
+# Optional: external model mount point
+RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models
 
-# Optional: pass a token at runtime:  docker run -e HF_TOKEN=...
-ENV HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface
+# --- knobs ---
+ENV QWEN_AUTO_DOWNLOAD=1 \
+    HF_TOKEN=""
 
-# ---- Entrypoint: fetch Qwen-Image-Edit + deps if missing, then launch ----
-RUN set -eux; mkdir -p /usr/local/bin && cat >/usr/local/bin/entrypoint.sh <<'EOF'
+# --- write entrypoint ---
+RUN mkdir -p /usr/local/bin && cat >/usr/local/bin/entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-source "$COMFY_ROOT/venv/bin/activate"
 
-DIFF="$COMFY_ROOT/models/diffusion_models/qwen_image_edit_fp8_e4m3fn.safetensors"
-CLIP="$COMFY_ROOT/models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
-VAE="$COMFY_ROOT/models/vae/qwen_image_vae.safetensors"
-LORA="$COMFY_ROOT/models/loras/Qwen-Image-Lightning-4steps-V1.0.safetensors"
+COMFY_ROOT="${COMFY_ROOT:-/opt/ComfyUI}"
+MODELS_DIR="$COMFY_ROOT/models"
+mkdir -p \
+  "$MODELS_DIR/diffusion_models" \
+  "$MODELS_DIR/text_encoders" \
+  "$MODELS_DIR/vae" \
+  "$MODELS_DIR/loras"
 
-if [ ! -f "$DIFF" ] || [ ! -f "$CLIP" ] || [ ! -f "$VAE" ] || [ ! -f "$LORA" ]; then
-  python - <<PY
-import os, shutil
-from huggingface_hub import hf_hub_download, login
+# bf16-only artifacts
+DM_PATH="split_files/diffusion_models/qwen_image_bf16.safetensors"
+TE_PATH="split_files/text_encoders/qwen_2.5_vl_7b.safetensors"
+VAE_PATH="split_files/vae/qwen_image_vae.safetensors"
 
-token = os.getenv("HF_TOKEN") or None
-if token: 
-    try: login(token=token); 
-    except Exception: pass
+if [ "${QWEN_AUTO_DOWNLOAD:-1}" = "1" ]; then
+  export HF_TOKEN=${HF_TOKEN:-}
+  "$COMFY_ROOT/venv/bin/python" - <<PY
+import os
+from huggingface_hub import hf_hub_download
 
-COMFY_ROOT = os.environ["COMFY_ROOT"]
+MODELS_DIR = os.path.join(os.environ.get("COMFY_ROOT", "/opt/ComfyUI"), "models")
+token = os.environ.get("HF_TOKEN") or None
 
-def fetch(repo_id, filename, out_dir, out_name=None):
-    p = hf_hub_download(
+targets = [
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/diffusion_models/qwen_image_bf16.safetensors", os.path.join(MODELS_DIR, "diffusion_models")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors", os.path.join(MODELS_DIR, "text_encoders")),
+    ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors", os.path.join(MODELS_DIR, "vae")),
+    # Helen LoRA
+    ("momo1231231/HelenLora", "helendog.safetensors", os.path.join(MODELS_DIR, "loras")),
+]
+
+for repo_id, filename, outdir in targets:
+    os.makedirs(outdir, exist_ok=True)
+    print(f"Downloading {filename} from {repo_id} -> {outdir}")
+    hf_hub_download(
         repo_id=repo_id,
         filename=filename,
-        local_dir="/root/.cache/hf",
+        repo_type="model",
+        local_dir=outdir,
         local_dir_use_symlinks=False,
         token=token,
         resume_download=True,
     )
-    os.makedirs(out_dir, exist_ok=True)
-    dst = os.path.join(out_dir, out_name or os.path.basename(filename))
-    if os.path.abspath(p) != os.path.abspath(dst):
-        shutil.copy2(p, dst)
-
-# Qwen-Image-Edit diffusion (FP8)
-fetch("Comfy-Org/Qwen-Image-Edit_ComfyUI",
-      "split_files/diffusion_models/qwen_image_edit_fp8_e4m3fn.safetensors",
-      os.path.join(COMFY_ROOT, "models/diffusion_models"))
-
-# Qwen2.5-VL text encoder (FP8)
-fetch("Comfy-Org/Qwen-Image_ComfyUI",
-      "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
-      os.path.join(COMFY_ROOT, "models/text_encoders"))
-
-# Qwen VAE
-fetch("Comfy-Org/Qwen-Image_ComfyUI",
-      "split_files/vae/qwen_image_vae.safetensors",
-      os.path.join(COMFY_ROOT, "models/vae"))
-
-# Optional: Lightning LoRA (4 steps) for speed
-fetch("lightx2v/Qwen-Image-Lightning",
-      "Qwen-Image-Lightning-4steps-V1.0.safetensors",
-      os.path.join(COMFY_ROOT, "models/loras"))
 PY
 fi
 
