@@ -61,7 +61,8 @@ targets = [
     ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/text_encoders/qwen_2.5_vl_7b.safetensors", os.path.join(MODELS_DIR, "text_encoders")),
     ("Comfy-Org/Qwen-Image_ComfyUI", "split_files/vae/qwen_image_vae.safetensors", os.path.join(MODELS_DIR, "vae")),
     # Helen LoRA
-    ("momo1231231/HelenLora", "helendog.safetensors", os.path.join(MODELS_DIR, "loras")),
+    ("momo1231231/helen", "helen.safetensors", os.path.join(MODELS_DIR, "loras")),\
+    ("momo1231231/ppet", "ppet.safetensors", os.path.join(MODELS_DIR, "loras")),
 ]
 
 for repo_id, filename, outdir in targets:
