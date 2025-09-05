@@ -1,5 +1,6 @@
 # ComfyUI (nightly) + Qwen-Image prerequisites
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# New GPUs (e.g., RTX 50xx/Blackwell) need newer CUDA runtime for PyTorch nightlies
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 # --- system deps ---
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -18,7 +19,8 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_RO
 RUN python3 -m venv $COMFY_ROOT/venv && \
     . $COMFY_ROOT/venv/bin/activate && \
     pip install --upgrade pip wheel && \
-    pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio && \
+    # Install PyTorch nightly with CUDA 12.4 to support latest GPUs (e.g., sm_120)
+    pip install --pre --index-url https://download.pytorch.org/whl/nightly/cu124 torch torchvision torchaudio && \
     pip install -r $COMFY_ROOT/requirements.txt && \
     pip install huggingface_hub
 
