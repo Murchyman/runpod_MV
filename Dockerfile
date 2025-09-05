@@ -22,6 +22,20 @@ RUN python3 -m venv $COMFY_ROOT/venv && \
     pip install -r $COMFY_ROOT/requirements.txt && \
     pip install huggingface_hub
 
+# --- custom nodes ---
+# rgthree-comfy: quality-of-life nodes and UI improvements
+RUN set -eux; \
+    mkdir -p "$COMFY_ROOT/custom_nodes"; \
+    if [ ! -d "$COMFY_ROOT/custom_nodes/rgthree-comfy/.git" ]; then \
+      git clone --depth 1 https://github.com/rgthree/rgthree-comfy.git "$COMFY_ROOT/custom_nodes/rgthree-comfy"; \
+    else \
+      git -C "$COMFY_ROOT/custom_nodes/rgthree-comfy" pull --ff-only; \
+    fi; \
+    . "$COMFY_ROOT/venv/bin/activate"; \
+    if [ -f "$COMFY_ROOT/custom_nodes/rgthree-comfy/requirements.txt" ]; then \
+      pip install --no-cache-dir -r "$COMFY_ROOT/custom_nodes/rgthree-comfy/requirements.txt"; \
+    fi
+
 # Optional: external model mount point
 RUN mkdir -p /models && ln -s /models $COMFY_ROOT/models
 
