@@ -12,6 +12,13 @@ ENV COMFY_ROOT=/opt/ComfyUI
 ENV PYTHONUNBUFFERED=1
 WORKDIR $COMFY_ROOT
 
+# --- PyTorch channel knobs ---
+# Change at build time: --build-arg TORCH_CHANNEL=nightly|stable, --build-arg TORCH_CUDA_TAG=cu124
+ARG TORCH_CHANNEL=stable
+ARG TORCH_CUDA_TAG=cu124
+ENV TORCH_INDEX_STABLE="https://download.pytorch.org/whl/${TORCH_CUDA_TAG}"
+ENV TORCH_INDEX_NIGHTLY="https://download.pytorch.org/whl/nightly/${TORCH_CUDA_TAG}"
+
 # --- clone ComfyUI (nightly / master) ---
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
 
@@ -19,8 +26,12 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_RO
 RUN python3 -m venv $COMFY_ROOT/venv && \
     . $COMFY_ROOT/venv/bin/activate && \
     pip install --upgrade pip wheel && \
-    # Install PyTorch nightly with CUDA 12.4 to support latest GPUs (e.g., sm_120)
-    pip install --pre --index-url https://download.pytorch.org/whl/nightly/cu124 torch torchvision torchaudio && \
+    # Install PyTorch with CUDA ${TORCH_CUDA_TAG}; prefer stable unless overridden
+    if [ "$TORCH_CHANNEL" = "nightly" ]; then \
+      pip install --pre --index-url "$TORCH_INDEX_NIGHTLY" torch torchvision; \
+    else \
+      pip install --index-url "$TORCH_INDEX_STABLE" torch torchvision; \
+    fi && \
     pip install -r $COMFY_ROOT/requirements.txt && \
     pip install huggingface_hub
 
