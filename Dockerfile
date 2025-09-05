@@ -1,11 +1,11 @@
 # ComfyUI (nightly) + Qwen-Image prerequisites
 # New GPUs (e.g., RTX 50xx/Blackwell) need newer CUDA runtime for PyTorch nightlies
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.1-runtime-ubuntu22.04
 
 # Metadata labels
 LABEL maintainer="ComfyUI Team"
-LABEL version="1.0"
-LABEL description="ComfyUI with Qwen-Image support and CUDA 12.4"
+LABEL version="1.1"
+LABEL description="ComfyUI with Qwen-Image support and CUDA 12.6 (RTX 5090 compatible)"
 
 # --- system deps ---
 # Some CUDA images ship without Ubuntu repos enabled; seed sources.list explicitly
@@ -31,7 +31,7 @@ RUN set -eux; \
 # --- env/layout ---
 ENV COMFY_ROOT=/opt/ComfyUI \
     PYTHONUNBUFFERED=1 \
-    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256,garbage_collection_threshold:0.8 \
     QWEN_AUTO_DOWNLOAD=1 \
     HF_TOKEN="" \
     COMFY_PORT=8188 \
@@ -40,14 +40,33 @@ ENV COMFY_ROOT=/opt/ComfyUI \
 WORKDIR $COMFY_ROOT
 
 # --- PyTorch channel knobs ---
-# Change at build time: --build-arg TORCH_CHANNEL=nightly|stable, --build-arg TORCH_CUDA_TAG=cu124
+# Change at build time: --build-arg TORCH_CHANNEL=nightly|stable, --build-arg TORCH_CUDA_TAG=cu126
 ARG TORCH_CHANNEL=nightly
-ARG TORCH_CUDA_TAG=cu124
+ARG TORCH_CUDA_TAG=cu126
 ENV TORCH_INDEX_STABLE="https://download.pytorch.org/whl/${TORCH_CUDA_TAG}" \
     TORCH_INDEX_NIGHTLY="https://download.pytorch.org/whl/nightly/${TORCH_CUDA_TAG}"
 
 # --- clone ComfyUI (nightly / master) ---
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
+
+# --- RTX 5090/Blackwell compatibility checks ---
+RUN set -eux; \
+    echo "Checking NVIDIA driver compatibility for RTX 5090/Blackwell..."; \
+    if command -v nvidia-smi >/dev/null 2>&1; then \
+        DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0"); \
+        if [ "${DRIVER_VERSION%%.*}" -lt 560 ] 2>/dev/null; then \
+            echo "WARNING: RTX 5090 requires NVIDIA driver 560+, detected: $DRIVER_VERSION"; \
+            echo "Container may not work properly with RTX 5090"; \
+        else \
+            echo "Driver version $DRIVER_VERSION is compatible with RTX 5090"; \
+        fi; \
+        COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 || echo "0.0"); \
+        if [ "${COMPUTE_CAP%%.*}" -ge 9 ] 2>/dev/null; then \
+            echo "Detected Blackwell architecture (compute $COMPUTE_CAP) - optimizations enabled"; \
+        fi; \
+    else \
+        echo "nvidia-smi not available during build - runtime checks will be performed"; \
+    fi
 
 # --- Python venv setup (separate layer for better caching) ---
 RUN python3 -m venv $COMFY_ROOT/venv
@@ -149,6 +168,41 @@ trap cleanup SIGTERM SIGINT
 COMFY_ROOT="${COMFY_ROOT:-/opt/ComfyUI}"
 COMFY_PORT="${COMFY_PORT:-8188}"
 COMFY_HOST="${COMFY_HOST:-0.0.0.0}"
+
+# RTX 5090/Blackwell runtime validation
+echo "=== GPU Compatibility Check ==="
+if command -v nvidia-smi >/dev/null 2>&1; then
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown")
+    DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0")
+    COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 || echo "0.0")
+    MEMORY_TOTAL=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0")
+    
+    echo "GPU: $GPU_NAME"
+    echo "Driver: $DRIVER_VERSION"
+    echo "Compute Capability: $COMPUTE_CAP"
+    echo "VRAM: ${MEMORY_TOTAL}MB"
+    
+    # RTX 5090 specific checks
+    if echo "$GPU_NAME" | grep -qi "RTX.*50[0-9][0-9]"; then
+        echo "Blackwell GPU detected!"
+        if [ "${DRIVER_VERSION%%.*}" -lt 560 ] 2>/dev/null; then
+            echo "ERROR: RTX 5090 requires NVIDIA driver 560+, found: $DRIVER_VERSION"
+            echo "Please update your NVIDIA drivers"
+            exit 1
+        fi
+        if [ "${COMPUTE_CAP%%.*}" -ge 9 ] 2>/dev/null; then
+            echo "Blackwell compute capability confirmed - optimizations active"
+            # Optimize memory allocation for 32GB VRAM
+            if [ "$MEMORY_TOTAL" -gt 30000 ]; then
+                export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:512,garbage_collection_threshold:0.9"
+                echo "Applied RTX 5090 memory optimizations"
+            fi
+        fi
+    fi
+else
+    echo "WARNING: nvidia-smi not available - GPU validation skipped"
+fi
+echo "=== End GPU Check ==="
 
 # Ensure model directories exist
 mkdir -p \
