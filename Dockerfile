@@ -14,7 +14,7 @@ WORKDIR $COMFY_ROOT
 
 # --- PyTorch channel knobs ---
 # Change at build time: --build-arg TORCH_CHANNEL=nightly|stable, --build-arg TORCH_CUDA_TAG=cu124
-ARG TORCH_CHANNEL=stable
+ARG TORCH_CHANNEL=nightly
 ARG TORCH_CUDA_TAG=cu124
 ENV TORCH_INDEX_STABLE="https://download.pytorch.org/whl/${TORCH_CUDA_TAG}"
 ENV TORCH_INDEX_NIGHTLY="https://download.pytorch.org/whl/nightly/${TORCH_CUDA_TAG}"
@@ -22,7 +22,7 @@ ENV TORCH_INDEX_NIGHTLY="https://download.pytorch.org/whl/nightly/${TORCH_CUDA_T
 # --- clone ComfyUI (nightly / master) ---
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFY_ROOT"
 
-# --- Python venv + CUDA 12.1 PyTorch + ComfyUI deps + HF hub ---
+# --- Python venv + CUDA 12.4 PyTorch + ComfyUI deps + HF hub ---
 RUN python3 -m venv $COMFY_ROOT/venv && \
     . $COMFY_ROOT/venv/bin/activate && \
     pip install --upgrade pip wheel && \
