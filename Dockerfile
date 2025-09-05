@@ -85,7 +85,7 @@ RUN . $COMFY_ROOT/venv/bin/activate && \
 # --- Install ComfyUI dependencies (separate layer) ---
 RUN . $COMFY_ROOT/venv/bin/activate && \
     pip install -r $COMFY_ROOT/requirements.txt && \
-    pip install huggingface_hub==0.19.*
+    pip install huggingface_hub
 
 # --- custom nodes ---
 # rgthree-comfy: quality-of-life nodes and UI improvements
